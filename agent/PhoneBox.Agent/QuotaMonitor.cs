@@ -188,7 +188,11 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             .Where(p => p.Id is not ("claude" or "codex" or "antigravity"))
             .Select(p => CodexBar.Select(null, p, now))
             .OfType<QuotaProvider>();
-        return core.Concat(extra).Select(p => Rolled(p, now)).ToList();
+        var all = core.Concat(extra);
+        // OpenCode Go 原生读取(不依赖外部 codexbar CLI), 与外部同名 provider 去重后保留原生一份
+        if (_openCodeGo is { } goReading && CodexBar.Select(null, goReading, now) is { } goProvider)
+            all = all.Where(p => p.Id != "opencodego").Concat([goProvider]);
+        return all.Select(p => Rolled(p, now)).ToList();
     }
 
     /// <summary>A window whose reset time has passed started over: the last reading (kept while the tool is not used) no longer applies.</summary>
@@ -336,6 +340,12 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             {
                 var ok = await RefreshAntigravity(ct);
                 _nextAntigravity = Environment.TickCount64 + (ok ? 60_000 : 30_000);
+            }
+
+            if (Environment.TickCount64 >= _nextOpenCodeGo)
+            {
+                var okGo = await RefreshOpenCodeGo(ct);
+                _nextOpenCodeGo = Environment.TickCount64 + (okGo ? 60_000 : 120_000);
             }
 
             try { await ClaudeTickAsync(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct); }

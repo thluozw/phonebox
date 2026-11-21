@@ -19,7 +19,9 @@ try { firstInstance = single.WaitOne(waitMs); }
 catch (AbandonedMutexException) { firstInstance = true; }
 if (!firstInstance)
 {
+    // Say why nothing started: launched from a terminal a double click later looks like a crash otherwise.
     try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo($"http://127.0.0.1:{Port}/") { UseShellExecute = true }); } catch { }
+    Console.WriteLine($"PhoneBox agent is already running: http://127.0.0.1:{Port}/ (only one copy can run at a time)");
     return;
 }
 
@@ -73,6 +75,7 @@ builder.Services.AddSingleton<SpectrumAnalyzer>();
 AddMonitor<SystemMonitor>(builder.Services);
 AddMonitor<MediaMonitor>(builder.Services);
 AddMonitor<QuotaMonitor>(builder.Services);
+builder.Services.AddHostedService<OpenCodeGoSpend>();
 AddMonitor<ProcessMonitor>(builder.Services);
 AddMonitor<SessionMonitor>(builder.Services);
 AddMonitor<FeedMonitor>(builder.Services);
@@ -881,6 +884,11 @@ app.MapDelete("/api/settings/shortcut-icon", (string id, HttpRequest req, Config
 
 app.Lifetime.ApplicationStarted.Register(() =>
     app.Logger.LogInformation("PhoneBox agent {Version} ready on http://127.0.0.1:{Port} (config: {Path})", AppPaths.Version, Port, configPath));
+
+
+// One-time: an earlier build kept the OpenCode Go key in its own file; move it into the settings.
+try { OpenCodeGoCreds.MigrateLegacySession(app.Services.GetRequiredService<ConfigStore>()); }
+catch (Exception ex) { app.Logger.LogDebug(ex, "opencode go: legacy session migration skipped"); }
 
 app.Run();
 

@@ -741,7 +741,7 @@ W.sessions = {
       const dismiss = () => { stopConversation(); backdrop.remove(); document.removeEventListener('keydown', onKey); };
       close.addEventListener('click', dismiss);
       backdrop.addEventListener('click', (e) => { if (e.target === backdrop) dismiss(); });
-      panel.append(h('div', 'session-panel-head', h('span', null, s.tool === 'codex' ? '◎ Codex' : s.tool === 'cursor' ? '◆ Cursor' : '✳ Claude Code'), close), title);
+      panel.append(h('div', 'session-panel-head', h('span', null, s.tool === 'codex' ? '◎ Codex' : s.tool === 'cursor' ? '◆ Cursor' : s.tool === 'dsh' ? '◈ DeepSeek Harness' : '✳ Claude Code'), close), title);
       const rows = [
         ['Folder', folderOf(s) || null],
         ['Status', statusText(s)],
@@ -780,7 +780,7 @@ W.sessions = {
         const sorted = [...sessions].sort((a, b) => (S_ORDER[a.status] ?? 9) - (S_ORDER[b.status] ?? 9) || b.since - a.since);
         const rows = sorted.length ? sorted.map((s) => {
           const row = h('button', 'sess ' + s.status,
-            h('span', 'st'), h('span', 'tl ' + s.tool, s.tool === 'claude' ? '✳' : s.tool === 'cursor' ? '◆' : '◎'),
+            h('span', 'st'), h('span', 'tl ' + s.tool, s.tool === 'claude' ? '✳' : s.tool === 'cursor' ? '◆' : s.tool === 'dsh' ? '◈' : '◎'),
             h('span', 'sess-main', h('span', 'nm', titleOf(s)), h('span', 'sess-meta', [folderOf(s), [s.model, s.effort].filter(Boolean).join(' · ') || statusText(s)].filter(Boolean).join(' · '))),
             h('span', 'ds', shortDur(Date.now() - s.since)));
           row.type = 'button';

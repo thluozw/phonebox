@@ -1,0 +1,166 @@
+name: fork release
+
+# Builds the phone app and the desktop agents from THIS fork and publishes them as a GitHub release.
+# That release is what the agent and the phone app update from: the agent's Settings › Updates reads
+# https://api.github.com/repos/<updates.repo>/releases/latest and takes
+#   PhoneBox-<version>.apk, PhoneBoxAgent-<version>-<rid>.zip, SHA256SUMS-<version>.txt
+# so the version must be plain numbers (the agent compares it with Version.TryParse).
+#
+# Run it from Actions › fork release › Run workflow, or push a tag such as v0.9.24.
+# Signing and its trade-offs: android/fork-signing/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: Create the release as a draft
+        type: boolean
+        default: false
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Read the version
+        run: |
+          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' agent/PhoneBox.Agent/PhoneBox.Agent.csproj | head -n1)
+          test -n "$v" || { echo "::error::no <Version> in agent/PhoneBox.Agent/PhoneBox.Agent.csproj"; exit 1; }
+          case "$v" in
+            *[!0-9.]*|.*|*.) echo "::error::the updater parses the version with Version.TryParse, so '$v' must be numeric (x.y.z)"; exit 1 ;;
+          esac
+          grep -q "versionName = \"$v\"" android/app/build.gradle.kts \
+            || { echo "::error::android versionName does not match $v"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "building PhoneBox $v from ${{ github.repository }}"
+
+  apk:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      # ubuntu runners ship an Android SDK, but not always the exact platform this build asks for
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+      - name: Resolve the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.PHONEBOX_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.PHONEBOX_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PHONEBOX_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PHONEBOX_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "PHONEBOX_STORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "PHONEBOX_STORE_PASSWORD=$STORE_PASSWORD"
+              echo "PHONEBOX_KEY_ALIAS=$KEY_ALIAS"
+              echo "PHONEBOX_KEY_PASSWORD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "signing with the repository secrets"
+          else
+            test -f android/fork-signing/uber-debug.keystore \
+              || { echo "::error::add the PHONEBOX_KEYSTORE_BASE64 secret, or android/fork-signing/uber-debug.keystore"; exit 1; }
+            {
+              echo "PHONEBOX_STORE_FILE=$PWD/android/fork-signing/uber-debug.keystore"
+              echo "PHONEBOX_STORE_PASSWORD=android"
+              echo "PHONEBOX_KEY_ALIAS=debug"
+              echo "PHONEBOX_KEY_PASSWORD=android"
+            } >> "$GITHUB_ENV"
+            echo "signing with android/fork-signing/uber-debug.keystore (public debug key)"
+          fi
+      - name: Build the release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --console=plain
+          mkdir -p ../dist
+          cp app/build/outputs/apk/release/app-release.apk "../dist/PhoneBox-${{ needs.version.outputs.version }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fork-phonebox-apk
+          path: dist/
+          if-no-files-found: error
+
+  agent:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64, tfm: net10.0-windows10.0.19041.0 }
+          - { os: ubuntu-latest, rid: linux-x64, tfm: net10.0 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish the agent (self-contained, single file)
+        run: >
+          dotnet publish agent/PhoneBox.Agent -c Release -f ${{ matrix.tfm }} -r ${{ matrix.rid }}
+          --self-contained true -p:PublishSingleFile=true -o out --nologo
+      - name: Zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path out/* -DestinationPath "dist/PhoneBoxAgent-${{ needs.version.outputs.version }}-${{ matrix.rid }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fork-agent-${{ matrix.rid }}
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: [version, apk, agent]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: fork-*
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum * > "SHA256SUMS-${{ needs.version.outputs.version }}.txt"
+          cat "SHA256SUMS-${{ needs.version.outputs.version }}.txt"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          cat > notes.md <<EOF
+          PhoneBox $v, built from ${GITHUB_REPOSITORY}.
+
+          - \`PhoneBox-$v.apk\`: the phone app (the agent installs it from Settings, or over USB)
+          - \`PhoneBoxAgent-$v-win-x64.zip\` / \`PhoneBoxAgent-$v-linux-x64.zip\`: the desktop agent
+          - \`SHA256SUMS-$v.txt\`: checksums the agent verifies before installing
+          EOF
+          if gh release view "v$v" >/dev/null 2>&1; then
+            gh release upload "v$v" dist/* --clobber
+            echo "updated the existing release v$v"
+          else
+            gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md \
+              --target "$GITHUB_SHA" ${{ inputs.draft && '--draft' || '' }}
+            echo "created release v$v"
+          fi

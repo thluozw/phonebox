@@ -16,6 +16,8 @@ android/.kotlin/
 # Signing keys never belong in the repo
 *.jks
 *.keystore
+# the fork's release key: public Android debug key, see android/fork-signing/README.md
+!android/fork-signing/*.keystore
 *.p12
 
 # Build output

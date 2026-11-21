@@ -778,6 +778,26 @@ nav a.on::before { color: var(--accent); }
       </div>
 
       <div class="card">
+        <h3 data-i18n="s.openCodeGo.title">OpenCode Go</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.openCodeGo.lead">Reads the Go subscription itself: the 5-hour, weekly and monthly limits, plus today's spend. Needs a Console API key with Billing read permission; the key stays on this computer and is only sent to opencode.ai.</p>
+        <div class="row" style="gap:12px">
+          <div class="field" style="max-width:420px"><label data-i18n="s.openCodeGo.key">API key</label><input type="password" data-bind="openCodeGo.key" autocomplete="off" spellcheck="false" placeholder="oc_sk_…"><span class="hint" data-i18n="s.openCodeGo.keyHint">Console › Account › Personal API keys. Usage read alone is not enough: the limits endpoint needs Billing read too.</span></div>
+          <div class="field" style="max-width:340px"><label data-i18n="s.openCodeGo.org">Workspace id</label><input type="text" data-bind="openCodeGo.org" spellcheck="false" placeholder="org_…"><span class="hint" data-i18n="s.openCodeGo.orgHint">Optional; taken from the workspace URL and sent as x-org-id.</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="s.dsh.title">DeepSeek Harness</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.dsh.lead">Shows DeepSeek Harness sessions on the AI sessions widget. They are read from the harness's own local API (title, model, tokens, and whether it is waiting for your answer), so no plugin or extra setup is needed.</p>
+        <label class="check"><input type="checkbox" data-bind="dsh.sessions"> <span data-i18n="s.dsh.sessions">Show DSH sessions</span></label>
+        <div class="row" style="gap:12px;margin-top:10px">
+          <label class="check"><input type="checkbox" data-bind="dsh.includeSubagents"> <span data-i18n="s.dsh.subagents">Include subagent sessions</span></label>
+          <div class="field" style="max-width:150px"><label data-i18n="s.dsh.window">Hours back</label><input type="number" min="1" max="720" data-bind="dsh.windowHours" data-type="int"><span class="hint" data-i18n="s.dsh.windowHint">72 = three days</span></div>
+          <div class="field" style="max-width:150px"><label data-i18n="s.dsh.max">Max sessions</label><input type="number" min="1" max="100" data-bind="dsh.maxSessions" data-type="int"></div>
+        </div>
+      </div>
+
+      <div class="card">
         <h3 data-i18n="s.conn.title">Phone connection</h3>
         <div class="grid2">
           <div class="field"><label data-i18n="s.conn.phoneToUse">Phone to use</label><select id="serial"></select><span class="hint" data-i18n="s.conn.phoneToUseHint">If several Android devices are connected, choose which one runs the panel.</span>

@@ -20,7 +20,7 @@ public sealed record AgentSession(string Id, string Tool, string Name, string Pr
 ///  - Codex: the latest events in recent rollout files under ~/.codex/sessions
 ///  - Cursor (opt-in): recent agent transcripts under ~/.cursor/projects/*/agent-transcripts
 /// </summary>
-public sealed class SessionMonitor(ILogger<SessionMonitor> log, ConfigStore? config = null) : BackgroundService
+public sealed partial class SessionMonitor(ILogger<SessionMonitor> log, ConfigStore? config = null) : BackgroundService
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     private readonly ConcurrentDictionary<string, string> _codexCwd = new();
@@ -38,13 +38,15 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log, ConfigStore? con
 
     /// <summary>
     /// The sessions, for everything that sends them anywhere (the live stream, /api/work, the rules). This is the one
-    /// place they leave this class, so the title setting is applied here: with it off no title comes out, however the
-    /// session was read.
+    /// place they leave this class, so the title setting is applied here. The setting belongs to Claude Code, whose
+    /// titles are generated from the conversation text; a DeepSeek Harness session is named by the harness itself and
+    /// that title is the only useful label the phone can show, so it always travels.
     /// </summary>
     public IReadOnlyList<AgentSession> Snapshot()
     {
         var all = _sessions;
-        return ShareTitles || !all.Any(s => s.Title is not null) ? all : all.Select(s => s with { Title = null }).ToList();
+        if (ShareTitles || !all.Any(s => s.Tool == "claude" && s.Title is not null)) return all;
+        return all.Select(s => s.Tool == "claude" ? s with { Title = null } : s).ToList();
     }
 
     private bool ShareTitles => config?.Get().Claude.ShareSessionTitles ?? false;
@@ -59,6 +61,19 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log, ConfigStore? con
             var list = new List<AgentSession>();
             try { list.AddRange(ReadClaude(titles: ShareTitles)); } catch (Exception ex) { log.LogDebug("claude sessions: {Msg}", ex.Message); }
             try { list.AddRange(ReadCodex()); } catch (Exception ex) { log.LogDebug("codex sessions: {Msg}", ex.Message); }
+            // DeepSeek Harness sessions: the harness's own API first (it knows who is waiting for an answer);
+            // reading its session files is a fallback that must be opted into, since it competes with the harness's writes.
+            if (config?.Get().Dsh.Sessions != false)
+            {
+                try
+                {
+                    var dshApi = await ReadDshApiAsync(ct);
+                    if (dshApi is not null) list.AddRange(dshApi);
+                    else if (config?.Get().Dsh.Files == true) list.AddRange(ReadDsh());
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+                catch (Exception ex) { log.LogDebug("dsh sessions: {Msg}", ex.Message); }
+            }
             // Cursor sessions are off until Settings › General › Cursor sessions is enabled.
             if (config?.Get().Cursor.Sessions == true)
             {

@@ -9,6 +9,8 @@ namespace PhoneBox.Agent;
 public sealed class AgentConfig
 {
     public CodexBarConfig CodexBar { get; set; } = new();
+    /// <summary>OpenCode Go subscription limits and spend, read straight from opencode.ai with a Console API key.</summary>
+    public OpenCodeGoConfig OpenCodeGo { get; set; } = new();
     public ControlDeckConfig Controls { get; set; } = new();
     public string? DeviceSerial { get; set; }
     public string? AdbPath { get; set; }
@@ -21,6 +23,8 @@ public sealed class AgentConfig
     public ClaudeConfig Claude { get; set; } = new();
     /// <summary>Cursor agent-transcript sessions on the AI sessions widget (off by default).</summary>
     public CursorConfig Cursor { get; set; } = new();
+    /// <summary>DeepSeek Harness sessions read from ~/.dsh/sessions.</summary>
+    public DshConfig Dsh { get; set; } = new();
     public List<PageConfig> Pages { get; set; } = [];
     public List<Shortcut> Shortcuts { get; set; } = [];
     public List<RuleConfig> Rules { get; set; } = [];
@@ -212,7 +216,7 @@ public sealed class UpdateConfig
 {
     /// <summary>Install new GitHub releases automatically (phone app over USB, agent in place).</summary>
     public bool Auto { get; set; } = true;
-    public string Repo { get; set; } = "ersinkoc/phonebox";
+    public string Repo { get; set; } = "thluozw/phonebox";
 }
 
 public sealed class ClaudeConfig
@@ -229,6 +233,34 @@ public sealed class ClaudeConfig
     /// <summary>Show each Claude Code chat's title on the phone. The title is the name you gave the chat or the one
     /// Claude Code wrote, which it often draws from your first prompt, so it stays off until you turn it on.</summary>
     public bool ShareSessionTitles { get; set; }
+}
+
+/// <summary>
+/// DeepSeek Harness sessions on the AI sessions widget. They are read from ~/.dsh/sessions, the same files the
+/// harness writes; nothing is sent to the harness and no plugin is required.
+/// </summary>
+public sealed class DshConfig
+{
+    /// <summary>Show DSH sessions next to Claude Code, Codex and Cursor.</summary>
+    public bool Sessions { get; set; } = true;
+
+    /// <summary>Also list sessions the harness started for a subagent (off: a fan-out would flood the widget).</summary>
+    public bool IncludeSubagents { get; set; }
+
+    /// <summary>How far back a session may have been used to stay on the widget.</summary>
+    public int WindowHours { get; set; } = 72;
+
+    /// <summary>Most sessions shown at once (newest activity first).</summary>
+    public int MaxSessions { get; set; } = 20;
+
+    /// <summary>Seconds after a tool call with no further records before the session reads as waiting.</summary>
+    public int WaitingSec { get; set; } = 180;
+
+    /// <summary>
+    /// Read the session files under ~/.dsh/sessions when the harness API is unreachable. Off by default: the files are
+    /// appended to by the harness, so reading them competes with its writes.
+    /// </summary>
+    public bool Files { get; set; }
 }
 
 public sealed class CursorConfig
@@ -534,6 +566,13 @@ public sealed partial class ConfigStore(string path)
         c.CodexBar.Providers = (c.CodexBar.Providers ?? []).Where(p => p is "claude" or "codex" or "antigravity").Distinct().ToArray();
         c.CodexBar.PageSize = Math.Clamp(c.CodexBar.PageSize, 0, 6);
         c.CodexBar.RotateInterval = Math.Clamp(c.CodexBar.RotateInterval, 2, 300);
+        c.Dsh ??= new();
+        c.Dsh.WindowHours = Math.Clamp(c.Dsh.WindowHours, 1, 24 * 30);
+        c.Dsh.MaxSessions = Math.Clamp(c.Dsh.MaxSessions, 1, 100);
+        c.Dsh.WaitingSec = Math.Clamp(c.Dsh.WaitingSec, 30, 3600);
+        c.OpenCodeGo ??= new();
+        c.OpenCodeGo.Key = string.IsNullOrWhiteSpace(c.OpenCodeGo.Key) ? null : c.OpenCodeGo.Key.Trim();
+        c.OpenCodeGo.Org = string.IsNullOrWhiteSpace(c.OpenCodeGo.Org) ? null : c.OpenCodeGo.Org.Trim();
         c.Night ??= new();
         c.Controls ??= new();
         c.Controls.Actions ??= [];
@@ -871,6 +910,21 @@ public sealed partial class ConfigStore(string path)
 
     [GeneratedRegex("^[a-z0-9]{6,32}$")]
     private static partial Regex CameraId();
+}
+
+/// <summary>
+/// OpenCode Go: the Console API key and workspace id used to read the subscription's limits
+/// (GET /console/api/go/status) and spend (GET /console/api/activity/go).
+/// The key needs Usage read and Billing read: the limits endpoint answers 403 without the latter.
+/// Like every other token in this file it is stored in plain text; the settings API is local-only.
+/// </summary>
+public sealed class OpenCodeGoConfig
+{
+    /// <summary>Personal API key, oc_sk_...; empty or null hides the OpenCode Go quota card.</summary>
+    public string? Key { get; set; }
+
+    /// <summary>Workspace id (org_...), sent as x-org-id. Optional, but the endpoint asks for it.</summary>
+    public string? Org { get; set; }
 }
 
 public sealed class CodexBarConfig

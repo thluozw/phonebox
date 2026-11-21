@@ -13,7 +13,7 @@
     <Product>PhoneBox</Product>
     <Company>PhoneBox</Company>
     <Description>PhoneBox desktop agent: feeds the PhoneBox Android desk panel over USB or Wi-Fi.</Description>
-    <Version>0.9.22</Version>
+    <Version>0.9.24</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
@@ -67,5 +67,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PhoneBox.Agent.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
   </ItemGroup>
 </Project>
