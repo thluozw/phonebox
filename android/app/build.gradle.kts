@@ -17,8 +17,8 @@ android {
         applicationId = "net.oxog.phonebox.deskpanel"
         minSdk = 21 // Android 5.0; see CONTRIBUTING.md before changing it
         targetSdk = 35
-        versionCode = 45
-        versionName = "0.9.24"
+        versionCode = 46
+        versionName = "0.9.25"
     }
 
     signingConfigs {
@@ -29,6 +29,11 @@ android {
                 storePassword = signingValue("PHONEBOX_STORE_PASSWORD")
                 keyAlias = signingValue("PHONEBOX_KEY_ALIAS")
                 keyPassword = signingValue("PHONEBOX_KEY_PASSWORD")
+                // Sign v3 as well as v1+v2: an APK that lacks v3 is refused as "signatures do not match"
+                // when the installed app was signed with v3, which is what the debug key produces.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
