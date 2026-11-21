@@ -82,7 +82,7 @@ jobs:
             {
               echo "PHONEBOX_STORE_FILE=$PWD/android/fork-signing/uber-debug.keystore"
               echo "PHONEBOX_STORE_PASSWORD=android"
-              echo "PHONEBOX_KEY_ALIAS=debug"
+              echo "PHONEBOX_KEY_ALIAS=androiddebugkey"
               echo "PHONEBOX_KEY_PASSWORD=android"
             } >> "$GITHUB_ENV"
             echo "signing with android/fork-signing/uber-debug.keystore (public debug key)"
@@ -160,7 +160,8 @@ jobs:
             gh release upload "v$v" dist/* --clobber
             echo "updated the existing release v$v"
           else
+            # the tag already exists in this flow, so no --target: gh would refuse to move it
             gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md \
-              --target "$GITHUB_SHA" ${{ inputs.draft && '--draft' || '' }}
+              ${{ inputs.draft && '--draft' || '' }}
             echo "created release v$v"
           fi

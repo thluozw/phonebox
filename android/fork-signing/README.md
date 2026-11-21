@@ -2,7 +2,7 @@
 
 `uber-debug.keystore` is the Android **debug** keystore that ships inside
 [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer) (`debug.keystore` in its jar).
-Its password and alias are the standard debug ones (`android` / `debug`), so it is public:
+Its password and alias are the standard debug ones (`android` / `androiddebugkey`), so it is public:
 anybody who downloads that tool has the same file.
 
 The fork's CI signs release APKs with it because the app already installed on this project's
