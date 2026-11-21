@@ -1,0 +1,99 @@
+name: fork build probe
+
+# One-shot diagnostics: reproduces the steps of release-fork.yml with `|| true` and commits every log to the
+# ci-probe branch, so the failure can be read without API access. Delete this file once releases work.
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/fork-build-probe.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment
+        run: |
+          mkdir -p probe
+          {
+            echo "== os =="; uname -a
+            echo "== java =="; java -version 2>&1 | head -3
+            echo "== dotnet =="; dotnet --list-sdks 2>&1 | tail -5
+            echo "== android env =="; echo "ANDROID_HOME=${ANDROID_HOME:-unset}"; echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+            echo "== platforms =="; ls "${ANDROID_HOME:-/nonexistent}/platforms" 2>&1 | tail -5
+            echo "== build-tools =="; ls "${ANDROID_HOME:-/nonexistent}/build-tools" 2>&1 | tail -5
+          } > probe/env.log 2>&1 || true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: setup-android (same as the release workflow)
+        id: sud
+        continue-on-error: true
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: SDK after setup-android
+        run: |
+          {
+            echo "setup-android outcome: ${{ steps.sud.outcome }}"
+            echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+            ls "${ANDROID_HOME:-/nonexistent}/platforms" 2>&1 | tail -5
+            ls "${ANDROID_HOME:-/nonexistent}/build-tools" 2>&1 | tail -5
+          } > probe/sdk.log 2>&1 || true
+
+      - name: Build the release APK
+        continue-on-error: true
+        working-directory: android
+        env:
+          PHONEBOX_STORE_FILE: ${{ github.workspace }}/android/fork-signing/uber-debug.keystore
+          PHONEBOX_STORE_PASSWORD: android
+          PHONEBOX_KEY_ALIAS: debug
+          PHONEBOX_KEY_PASSWORD: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --console=plain > ../probe/gradle.log 2>&1
+          echo "gradle exit=$?" >> ../probe/gradle.log
+          tail -n 40 ../probe/gradle.log
+          ls -la app/build/outputs/apk/release/ >> ../probe/gradle.log 2>&1 || true
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish the agents
+        continue-on-error: true
+        run: |
+          {
+            echo "== win-x64 =="
+            dotnet publish agent/PhoneBox.Agent -c Release -f net10.0-windows10.0.19041.0 -r win-x64 \
+              --self-contained true -p:PublishSingleFile=true -o /tmp/out-win --nologo 2>&1 | tail -n 15
+            echo "exit=$?"
+            echo "== linux-x64 =="
+            dotnet publish agent/PhoneBox.Agent -c Release -f net10.0 -r linux-x64 \
+              --self-contained true -p:PublishSingleFile=true -o /tmp/out-linux --nologo 2>&1 | tail -n 15
+            echo "exit=$?"
+          } > probe/dotnet.log 2>&1 || true
+
+      - name: Commit the logs
+        if: always()
+        run: |
+          set -e
+          git config user.name "phonebox-ci"
+          git config user.email "ci@localhost"
+          git checkout -B ci-probe
+          git add -f probe
+          git commit -m "probe: build logs from $GITHUB_SHA" || echo "nothing to commit"
+          for i in 1 2 3; do
+            if git push origin ci-probe --force; then echo pushed; break; fi
+            sleep 5
+          done
