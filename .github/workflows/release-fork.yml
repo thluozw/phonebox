@@ -156,12 +156,13 @@ jobs:
           - \`PhoneBoxAgent-$v-win-x64.zip\` / \`PhoneBoxAgent-$v-linux-x64.zip\`: the desktop agent
           - \`SHA256SUMS-$v.txt\`: checksums the agent verifies before installing
           EOF
-          if gh release view "v$v" >/dev/null 2>&1; then
-            gh release upload "v$v" dist/* --clobber
+          repo="${GITHUB_REPOSITORY}"
+          if gh release view "v$v" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "v$v" dist/* --repo "$repo" --clobber
             echo "updated the existing release v$v"
           else
             # the tag already exists in this flow, so no --target: gh would refuse to move it
-            gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md \
+            gh release create "v$v" dist/* --repo "$repo" --title "PhoneBox $v" --notes-file notes.md \
               ${{ inputs.draft && '--draft' || '' }}
             echo "created release v$v"
           fi
