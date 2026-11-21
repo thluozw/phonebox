@@ -1,0 +1,12 @@
+fork release run: 44895215414
+version → completed/success
+    1. Set up job → success
+    2. Run actions/checkout@v4 → success
+    3. Read the version → success
+    6. Post Run actions/checkout@v4 → success
+    7. Complete job → success
+agent (windows-latest, win-x64, net10.0-windows10.0.19041.0) → queued/null
+agent (ubuntu-latest, linux-x64, net10.0) → queued/null
+apk → queued/null
+v0.9.25 draft=false prerelease=false assets=PhoneBox-0.9.25.apk,PhoneBoxAgent-0.9.25-linux-x64.zip,PhoneBoxAgent-0.9.25-win-x64.zip,SHA256SUMS-0.9.25.txt
+v0.9.24 draft=false prerelease=false assets=PhoneBox-0.9.24.apk,PhoneBoxAgent-0.9.24-linux-x64.zip,PhoneBoxAgent-0.9.24-win-x64.zip,SHA256SUMS-0.9.24.txt
