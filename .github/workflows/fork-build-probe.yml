@@ -1,7 +1,7 @@
 name: fork build probe
 
-# One-shot diagnostics: reproduces the steps of release-fork.yml with `|| true` and commits every log to the
-# ci-probe branch, so the failure can be read without API access. Delete this file once releases work.
+# Diagnostics without local API access: the runner's own token reads the Actions and Releases API and commits
+# the answer to the ci-probe branch. Retargeted by editing this file, which is the only trigger besides manual runs.
 
 on:
   workflow_dispatch:
@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   probe:
@@ -17,83 +18,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Environment
+      - name: Collect the workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p probe
-          {
-            echo "== os =="; uname -a
-            echo "== java =="; java -version 2>&1 | head -3
-            echo "== dotnet =="; dotnet --list-sdks 2>&1 | tail -5
-            echo "== android env =="; echo "ANDROID_HOME=${ANDROID_HOME:-unset}"; echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
-            echo "== platforms =="; ls "${ANDROID_HOME:-/nonexistent}/platforms" 2>&1 | tail -5
-            echo "== build-tools =="; ls "${ANDROID_HOME:-/nonexistent}/build-tools" 2>&1 | tail -5
-          } > probe/env.log 2>&1 || true
+          gh api "repos/${{ github.repository }}/releases?per_page=10" > probe/releases.json || true
+          gh api "repos/${{ github.repository }}/actions/runs?per_page=20" > probe/runs.json || true
+          run=$(gh api "repos/${{ github.repository }}/actions/runs?per_page=20" \
+                --jq '[.workflow_runs[] | select(.name=="fork release")][0].id')
+          echo "fork release run: ${run:-none}" > probe/summary.txt
+          if [ -n "$run" ] && [ "$run" != "null" ]; then
+            gh api "repos/${{ github.repository }}/actions/runs/$run" > probe/run.json || true
+            gh api "repos/${{ github.repository }}/actions/runs/$run/jobs" > probe/jobs.json || true
+            gh api "repos/${{ github.repository }}/actions/runs/$run/jobs" --jq '
+              .jobs[] | "\(.name) → \(.status)/\(.conclusion)",
+              (.steps[] | "    \(.number). \(.name) → \(.conclusion)")' >> probe/summary.txt
+            gh api "repos/${{ github.repository }}/check-runs?filter=latest" > /dev/null 2>&1 || true
+            for job in $(gh api "repos/${{ github.repository }}/actions/runs/$run/jobs" --jq '.jobs[].id'); do
+              gh api "repos/${{ github.repository }}/check-runs/$job/annotations" >> "probe/annotations-$job.json" 2>/dev/null || true
+            done
+          fi
+          gh api "repos/${{ github.repository }}/releases" --jq '.[] | "\(.tag_name) draft=\(.draft) prerelease=\(.prerelease) assets=\([.assets[].name] | join(","))"' >> probe/summary.txt
+          cat probe/summary.txt
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-
-      - name: setup-android (same as the release workflow)
-        id: sud
-        continue-on-error: true
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platforms;android-35 build-tools;35.0.0'
-
-      - name: SDK after setup-android
-        run: |
-          {
-            echo "setup-android outcome: ${{ steps.sud.outcome }}"
-            echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
-            ls "${ANDROID_HOME:-/nonexistent}/platforms" 2>&1 | tail -5
-            ls "${ANDROID_HOME:-/nonexistent}/build-tools" 2>&1 | tail -5
-          } > probe/sdk.log 2>&1 || true
-
-      - name: Build the release APK
-        continue-on-error: true
-        working-directory: android
-        env:
-          PHONEBOX_STORE_FILE: ${{ github.workspace }}/android/fork-signing/uber-debug.keystore
-          PHONEBOX_STORE_PASSWORD: android
-          PHONEBOX_KEY_ALIAS: debug
-          PHONEBOX_KEY_PASSWORD: android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease --console=plain > ../probe/gradle.log 2>&1
-          echo "gradle exit=$?" >> ../probe/gradle.log
-          tail -n 40 ../probe/gradle.log
-          ls -la app/build/outputs/apk/release/ >> ../probe/gradle.log 2>&1 || true
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Publish the agents
-        continue-on-error: true
-        run: |
-          {
-            echo "== win-x64 =="
-            dotnet publish agent/PhoneBox.Agent -c Release -f net10.0-windows10.0.19041.0 -r win-x64 \
-              --self-contained true -p:PublishSingleFile=true -o /tmp/out-win --nologo 2>&1 | tail -n 15
-            echo "exit=$?"
-            echo "== linux-x64 =="
-            dotnet publish agent/PhoneBox.Agent -c Release -f net10.0 -r linux-x64 \
-              --self-contained true -p:PublishSingleFile=true -o /tmp/out-linux --nologo 2>&1 | tail -n 15
-            echo "exit=$?"
-          } > probe/dotnet.log 2>&1 || true
-
-      - name: Commit the logs
+      - name: Commit
         if: always()
         run: |
-          set -e
           git config user.name "phonebox-ci"
           git config user.email "ci@localhost"
           git checkout -B ci-probe
           git add -f probe
-          git commit -m "probe: build logs from $GITHUB_SHA" || echo "nothing to commit"
-          for i in 1 2 3; do
-            if git push origin ci-probe --force; then echo pushed; break; fi
-            sleep 5
-          done
+          git commit -m "probe: run diagnostics for $GITHUB_SHA" || echo "nothing to commit"
+          for i in 1 2 3; do git push origin ci-probe --force && break; sleep 5; done
